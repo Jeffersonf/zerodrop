@@ -2,7 +2,7 @@
   "name": "zerodrop",
   "productName": "ZeroDrop",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "ZeroDrop Engine - Gerenciador Inteligente de Redundância e Failover 5G",
   "main": "electron/main.cjs",
   "author": "Jefferson",
