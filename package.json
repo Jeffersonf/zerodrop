@@ -1,0 +1,66 @@
+{
+  "name": "zerodrop",
+  "productName": "ZeroDrop",
+  "private": true,
+  "version": "1.0.0",
+  "description": "ZeroDrop Engine - Gerenciador Inteligente de Redundância e Failover 5G",
+  "main": "electron/main.cjs",
+  "author": "Jefferson",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "electron .",
+    "dist": "vite build && electron-builder --win nsis:x64"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "lucide-react": "^1.44.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.0"
+  },
+  "build": {
+    "appId": "com.zerodrop.engine",
+    "productName": "ZeroDrop",
+    "directories": {
+      "output": "dist-installer"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Jeffersonf",
+        "repo": "zerodrop"
+      }
+    ],
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.ico",
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ZeroDrop",
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico",
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

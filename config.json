@@ -1,0 +1,17 @@
+﻿{
+  "primary_interface": "Ethernet",
+  "secondary_interface": "",
+  "check_interval_seconds": 1.0,
+  "socket_timeout_seconds": 1.2,
+  "fail_threshold": 2,
+  "recovery_threshold": 3,
+  "primary_active_metric": 10,
+  "primary_inactive_metric": 9999,
+  "secondary_active_metric": 10,
+  "secondary_standby_metric": 50,
+  "test_targets": [
+    {"host": "1.1.1.1", "port": 80},
+    {"host": "8.8.8.8", "port": 53},
+    {"host": "1.0.0.1", "port": 80}
+  ]
+}
