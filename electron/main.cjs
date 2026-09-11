@@ -471,8 +471,6 @@ function updateTrayMenu() {
 }
 
 async function monitorTick() {
-  if (!isMonitoring) return;
-
   const interfaces = os.networkInterfaces();
 
   let foundEthIP = null;
@@ -537,6 +535,9 @@ async function monitorTick() {
   } else if (routeStrategy === 'FORCE_CABLE') {
     currentMode = 'NORMAL';
     // Modo fixo no cabo
+  } else if (!isMonitoring) {
+    currentMode = 'PAUSED';
+    // Proteção desativada pelo usuário
   } else {
     // Modo AUTO (Failover Dinâmico)
     if (currentMode === 'NORMAL') {
@@ -773,7 +774,20 @@ ipcMain.on('connect-hotspot', (event, name) => {
 
 ipcMain.on('set-monitoring', (event, enabled) => {
   isMonitoring = enabled;
-  sendLog('warn', enabled ? 'Monitoramento ZeroDrop retomado.' : 'Monitoramento pausado pelo usuário.');
+  if (!enabled) {
+    currentMode = 'PAUSED';
+    if (primaryAlias) resetInterfaceMetric(primaryAlias);
+    if (secondaryAlias) resetInterfaceMetric(secondaryAlias);
+    flushDNS();
+    sendLog('warn', '⚪ Proteção ZeroDrop DESATIVADA. Métricas de rede restauradas ao padrão do Windows.');
+  } else {
+    currentMode = 'NORMAL';
+    if (primaryAlias) setInterfaceMetric(primaryAlias, config.primaryActiveMetric);
+    if (secondaryAlias) setInterfaceMetric(secondaryAlias, config.secondaryStandbyMetric);
+    flushDNS();
+    sendLog('success', '🟢 Proteção ZeroDrop ATIVADA! Redundância automática em operação.');
+  }
+  updateTrayMenu();
 });
 
 ipcMain.on('set-route-strategy', (event, strategy) => {

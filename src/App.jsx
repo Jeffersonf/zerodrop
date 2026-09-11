@@ -289,10 +289,21 @@ export default function App() {
     }
   };
 
+  const hasCable = Boolean(state.primaryIP);
+  const hasCellular = Boolean(state.secondaryIP);
+  const isDualConnected = hasCable && hasCellular;
+
   const handleToggleMonitoring = () => {
+    if (!isDualConnected && !state.isMonitoring) {
+      return;
+    }
     const next = !state.isMonitoring;
     setState((prev) => ({ ...prev, isMonitoring: next }));
     window.electronAPI?.setMonitoring(next);
+    if (soundEnabled) {
+      if (next) playSound('recovered');
+      else playSound('auto');
+    }
   };
 
   const handleSetProfile = (profileName) => {
@@ -340,7 +351,15 @@ export default function App() {
             <span className="text-[11px] text-zinc-400 font-medium">Dual-WAN & Firewall Bypass</span>
           </div>
           <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-cyan-300 font-mono">
-            {isBypass ? '🔓 BYPASS FIREWALL' : isFailover ? '⚡ 5G FAILOVER' : '🟢 AUTO PROTEGIDO'}
+            {isBypass
+              ? '🔓 BYPASS FIREWALL'
+              : isFailover
+              ? '⚡ 5G FAILOVER'
+              : !state.isMonitoring
+              ? '⚪ DESATIVADO'
+              : !isDualConnected
+              ? '🔒 AGUARDANDO 2ª REDE'
+              : '🟢 AUTO PROTEGIDO'}
           </span>
         </div>
 
@@ -458,6 +477,133 @@ export default function App() {
       {/* 2. Main Workspace (Fluid Responsive Layout) */}
       <main className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col items-center">
         <div className="max-w-6xl w-full flex flex-col gap-4">
+          {/* MASTER PROTECTION STATUS & DUAL-NETWORK ACTIVATION BAR */}
+          <div className={`glass-card rounded-xl p-3.5 border transition-all duration-300 shadow-lg shadow-black/40 ${
+            state.isMonitoring && isDualConnected
+              ? 'border-emerald-500/30 bg-emerald-500/[0.03] shadow-emerald-950/20'
+              : !isDualConnected
+              ? 'border-amber-500/20 bg-amber-500/[0.02]'
+              : 'border-white/10 bg-zinc-900/40'
+          }`}>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              {/* Left: Info, Lock & Warning */}
+              <div className="flex items-center gap-3 min-w-[280px]">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center border shrink-0 transition-all ${
+                  state.isMonitoring && isDualConnected
+                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 shadow-md shadow-emerald-500/20'
+                    : !isDualConnected
+                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                    : 'bg-zinc-800 text-zinc-400 border-white/10'
+                }`}>
+                  {!isDualConnected ? (
+                    <Lock className="w-4 h-4 text-amber-400" />
+                  ) : state.isMonitoring ? (
+                    <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                  ) : (
+                    <Shield className="w-5 h-5 text-zinc-400" />
+                  )}
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-white tracking-wide">
+                      Proteção Dual-WAN ZeroDrop
+                    </span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border ${
+                      state.isMonitoring && isDualConnected
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 animate-pulse'
+                        : !isDualConnected
+                        ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                        : 'bg-zinc-800 text-zinc-400 border-white/10'
+                    }`}>
+                      {state.isMonitoring && isDualConnected
+                        ? '🟢 ATIVADO'
+                        : !isDualConnected
+                        ? '🔒 BLOQUEADO (REQUER 2 REDES)'
+                        : '⚪ DESATIVADO'}
+                    </span>
+                  </div>
+
+                  {/* Dynamic explanatory warning */}
+                  <div className="text-[11px] mt-0.5 font-sans">
+                    {!isDualConnected ? (
+                      <span className="text-amber-300/90 font-medium flex items-center gap-1.5 flex-wrap">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        {!hasCable && !hasCellular
+                          ? 'Aviso: Conecte o Cabo de Rede e a Segunda Rede (Celular) para liberar o botão de ativação.'
+                          : !hasCable
+                          ? 'Aviso: Conecte o Cabo de Rede para liberar o botão de ativação da redundância.'
+                          : 'Aviso: Conecte o Celular (Wi-Fi/Hotspot) para liberar o botão de ativação da redundância.'}
+                      </span>
+                    ) : state.isMonitoring ? (
+                      <span className="text-emerald-300/90 font-medium flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                        Cabo e Celular conectados. Redundância em alta precisão ({state.config?.checkInterval || 500}ms).
+                      </span>
+                    ) : (
+                      <span className="text-zinc-400">
+                        Cabo e Celular prontos. Clique no botão ao lado para ativar a proteção de tráfego.
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: Network status pills + ATIVADO / DESATIVADO button */}
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:flex items-center gap-1.5 text-[10px] font-mono">
+                  <span className={`px-2 py-0.5 rounded-md border flex items-center gap-1 ${
+                    hasCable ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' : 'bg-rose-500/10 text-rose-300 border-rose-500/20'
+                  }`}>
+                    {hasCable ? <Check className="w-2.5 h-2.5" /> : <X className="w-2.5 h-2.5" />} Cabo {hasCable ? 'Online' : 'Off'}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-md border flex items-center gap-1 ${
+                    hasCellular ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' : 'bg-rose-500/10 text-rose-300 border-rose-500/20'
+                  }`}>
+                    {hasCellular ? <Check className="w-2.5 h-2.5" /> : <X className="w-2.5 h-2.5" />} Celular {hasCellular ? 'Online' : 'Off'}
+                  </span>
+                </div>
+
+                <button
+                  onClick={handleToggleMonitoring}
+                  disabled={!isDualConnected}
+                  title={!isDualConnected ? 'Conecte o Cabo e o Celular para poder ativar' : 'Clique para alternar a Proteção ZeroDrop'}
+                  className={`relative inline-flex items-center h-8 rounded-full transition-all duration-300 px-1 border select-none ${
+                    !isDualConnected
+                      ? 'opacity-50 cursor-not-allowed bg-zinc-800 border-white/5 w-32'
+                      : state.isMonitoring
+                      ? 'bg-emerald-600 hover:bg-emerald-500 border-emerald-400/40 w-32 cursor-pointer shadow-lg shadow-emerald-600/30'
+                      : 'bg-zinc-800 hover:bg-zinc-700 border-white/10 w-32 cursor-pointer'
+                  }`}
+                >
+                  <span className={`text-[11px] font-bold tracking-wider uppercase px-2 w-full flex items-center justify-between ${
+                    !isDualConnected
+                      ? 'text-zinc-500'
+                      : state.isMonitoring
+                      ? 'text-white'
+                      : 'text-zinc-400'
+                  }`}>
+                    {state.isMonitoring && isDualConnected ? (
+                      <>
+                        <span className="pl-1">Ativado</span>
+                        <div className="w-5 h-5 rounded-full bg-white text-emerald-600 flex items-center justify-center shadow-md">
+                          <Check className="w-3 h-3 stroke-[3]" />
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-5 h-5 rounded-full bg-zinc-600 text-zinc-300 flex items-center justify-center shadow-md">
+                          {!isDualConnected ? <Lock className="w-2.5 h-2.5" /> : <X className="w-3 h-3 stroke-[3]" />}
+                        </div>
+                        <span className="pr-1">{!isDualConnected ? 'Travado' : 'Desativado'}</span>
+                      </>
+                    )}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* QUICK 1-CLICK ROUTE SELECTOR BAR */}
           <div className="glass-card rounded-xl p-3 border border-white/10 flex items-center justify-between flex-wrap gap-2.5 shadow-lg shadow-black/40">
             <div className="flex items-center gap-2">
@@ -842,14 +988,24 @@ export default function App() {
             <div className="flex items-center gap-2">
               <button
                 onClick={handleToggleMonitoring}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  state.isMonitoring
-                    ? 'bg-white/10 hover:bg-white/15 text-zinc-200 border border-white/10'
-                    : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                disabled={!isDualConnected}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all select-none ${
+                  !isDualConnected
+                    ? 'opacity-50 cursor-not-allowed bg-zinc-800 text-zinc-500 border border-white/5'
+                    : state.isMonitoring
+                    ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 cursor-pointer'
+                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-white/10 cursor-pointer'
                 }`}
+                title={!isDualConnected ? 'Requer Cabo de Rede e Celular conectados simultaneamente' : 'Alternar Proteção ZeroDrop'}
               >
-                {state.isMonitoring ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                {state.isMonitoring ? 'Pausar' : 'Retomar'}
+                {!isDualConnected ? (
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                ) : state.isMonitoring ? (
+                  <Pause className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Play className="w-3.5 h-3.5" />
+                )}
+                {!isDualConnected ? 'Proteção Bloqueada' : state.isMonitoring ? 'Proteção Ativada' : 'Ativar Proteção'}
               </button>
 
               <button
