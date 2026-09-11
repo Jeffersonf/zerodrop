@@ -36,7 +36,11 @@ import {
   Info,
   Shield,
   Download,
-  Sparkles
+  Sparkles,
+  HelpCircle,
+  ChevronRight,
+  ChevronLeft,
+  BookOpen
 } from 'lucide-react';
 
 function playSound(type) {
@@ -133,6 +137,77 @@ export default function App() {
     total: 0,
     error: ''
   });
+
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(() => {
+    try {
+      return !localStorage.getItem('zerodrop_tutorial_seen');
+    } catch {
+      return false;
+    }
+  });
+  const [onboardingStep, setOnboardingStep] = useState(0);
+
+  const handleFinishOnboarding = () => {
+    setIsOnboardingOpen(false);
+    try {
+      localStorage.setItem('zerodrop_tutorial_seen', 'true');
+    } catch (_) {}
+  };
+
+  const tutorialSteps = [
+    {
+      badge: 'Proteção Dual-WAN Hitless',
+      badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+      icon: ShieldCheck,
+      iconColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+      title: 'Adeus às Quedas de Conexão',
+      desc: 'O ZeroDrop monitora seu Cabo de Rede e o Wi-Fi em tempo real. Se o cabo for puxado ou a rede cair, o tráfego salta para o seu celular em milissegundos sem derrubar chamadas, streams, jogos ou downloads.',
+      highlights: [
+        { label: 'Monitoramento Contínuo', val: 'Pings de 500ms na placa de rede' },
+        { label: 'Comutação Sem Queda', val: 'Transição imperceptível (Hitless)' },
+        { label: 'Retorno Automático', val: 'Volta ao cabo assim que estabilizar' }
+      ]
+    },
+    {
+      badge: 'Bypass Inteligente de Firewall',
+      badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
+      icon: Unlock,
+      iconColor: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+      title: 'Acesse Shopee e Sites Bloqueados',
+      desc: 'Redes de empresas (como Fortinet no IP 10.x.x.x) costumam bloquear determinados sites. Com o botão "Forçar Celular (Bypass)", você navega direto pelo seu 5G sem precisar tirar o cabo da máquina!',
+      highlights: [
+        { label: '1 Clique para Desbloquear', val: 'Prioriza a rota do celular na hora' },
+        { label: 'Limpeza de Cache DNS', val: 'Flush DNS automático do Windows' },
+        { label: 'Retorno Imediato', val: 'Volte ao cabo com 1 clique quando quiser' }
+      ]
+    },
+    {
+      badge: 'Radar de Celular no Ar',
+      badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
+      icon: Smartphone,
+      iconColor: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+      title: 'Auto-Conexão do seu Smartphone',
+      desc: 'Ao ligar o Ponto de Acesso (Roteador Wi-Fi) no seu celular, o radar do ZeroDrop detecta o sinal no ar e conecta sozinho em segundo plano, deixando a reserva 5G pronta para qualquer emergência.',
+      highlights: [
+        { label: 'Aparelhos Pré-Cadastrados', val: 'S21+ e POCO F5 já configurados' },
+        { label: 'Multi-Dispositivo', val: 'Adicione quantos celulares quiser em ⚙️' },
+        { label: 'Conexão Sob Demanda', val: 'Botão "Conectar" manual disponível' }
+      ]
+    },
+    {
+      badge: 'Atualizações Automáticas & Sensibilidade',
+      badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+      icon: Zap,
+      iconColor: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+      title: 'Perfis de Troca e Auto-Updates',
+      desc: 'Ajuste a velocidade de reação para o seu uso: Modo Gamer (500ms), Equilibrado ou Seguro. Além disso, o ZeroDrop recebe novidades e melhorias diretamente pelo GitHub Releases sem você precisar reinstalar!',
+      highlights: [
+        { label: 'Modo Gamer', val: 'Troca ultra-rápida (1 falha = 500ms)' },
+        { label: 'GitHub Auto-Update', val: 'Atualizações transparentes e gratuitas' },
+        { label: 'Ajuda a Qualquer Momento', val: 'Clique no botão (?) no topo para rever' }
+      ]
+    }
+  ];
 
   const lastModeRef = useRef('NORMAL');
   const logEndRef = useRef(null);
@@ -271,6 +346,16 @@ export default function App() {
 
         {/* Window controls & Audio */}
         <div className="flex items-center gap-1.5" style={{ WebkitAppRegion: 'no-drag' }}>
+          <button
+            onClick={() => {
+              setOnboardingStep(0);
+              setIsOnboardingOpen(true);
+            }}
+            className="w-7 h-7 flex items-center justify-center rounded text-zinc-400 hover:text-cyan-300 hover:bg-white/10 transition-colors cursor-pointer"
+            title="Tutorial de Primeiro Acesso (Guia)"
+          >
+            <HelpCircle className="w-3.5 h-3.5" />
+          </button>
           <button
             onClick={() => setIsSettingsOpen(true)}
             className="w-7 h-7 flex items-center justify-center rounded text-zinc-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
@@ -1231,6 +1316,24 @@ export default function App() {
                     )}
                   </div>
 
+                  <div className="p-3 rounded-xl border border-white/10 bg-white/[0.02] flex items-center justify-between">
+                    <div>
+                      <span className="font-semibold text-zinc-200 block">Tutorial de Boas-Vindas</span>
+                      <span className="text-[10px] text-zinc-400">Rever a apresentação de recursos e atalhos do ZeroDrop</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setOnboardingStep(0);
+                        setIsOnboardingOpen(true);
+                        setIsSettingsOpen(false);
+                      }}
+                      className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-zinc-300 border border-white/10 font-semibold rounded-lg text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <BookOpen className="w-3.5 h-3.5 text-cyan-400" />
+                      Rever Tutorial
+                    </button>
+                  </div>
+
                   <div className="pt-2 text-center text-zinc-500 text-[11px]">
                     ZeroDrop Engine v{state.appVersion || '1.0.0'} • Proteção Dual-WAN & Bypass Fortinet
                   </div>
@@ -1247,6 +1350,128 @@ export default function App() {
                 Concluir
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ONBOARDING TUTORIAL MODAL */}
+      {isOnboardingOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+          <div className="bg-[#101014] border border-white/15 rounded-2xl w-full max-w-xl shadow-2xl shadow-cyan-950/40 overflow-hidden flex flex-col animate-scaleUp">
+            
+            {/* Header com indicador de progresso */}
+            <div className="px-6 pt-5 pb-3 flex items-center justify-between border-b border-white/10 bg-white/[0.02]">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">
+                  Tutorial de Primeiro Acesso
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] font-mono text-zinc-500 font-semibold">
+                  {onboardingStep + 1} de {tutorialSteps.length}
+                </span>
+                <button
+                  onClick={handleFinishOnboarding}
+                  className="text-zinc-500 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/10 cursor-pointer"
+                  title="Fechar Tutorial"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Conteúdo do Slide */}
+            <div className="p-6 space-y-4">
+              {/* Badge da funcionalidade */}
+              <div className="flex items-center justify-between">
+                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${tutorialSteps[onboardingStep].badgeColor}`}>
+                  {tutorialSteps[onboardingStep].badge}
+                </span>
+                {/* Dots de navegação */}
+                <div className="flex items-center gap-1.5">
+                  {tutorialSteps.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setOnboardingStep(idx)}
+                      className={`h-1.5 rounded-full transition-all cursor-pointer ${
+                        idx === onboardingStep
+                          ? 'w-6 bg-gradient-to-r from-cyan-400 to-emerald-400 shadow-sm shadow-cyan-400/50'
+                          : 'w-1.5 bg-white/20 hover:bg-white/40'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Título com ícone em destaque */}
+              <div className="flex items-start gap-4 pt-1">
+                {(() => {
+                  const IconComp = tutorialSteps[onboardingStep].icon;
+                  return (
+                    <div className={`p-3.5 rounded-2xl border shrink-0 ${tutorialSteps[onboardingStep].iconColor}`}>
+                      <IconComp className="w-7 h-7" />
+                    </div>
+                  );
+                })()}
+                <div>
+                  <h3 className="text-lg font-bold text-white tracking-wide">
+                    {tutorialSteps[onboardingStep].title}
+                  </h3>
+                  <p className="text-xs text-zinc-300 leading-relaxed mt-1.5">
+                    {tutorialSteps[onboardingStep].desc}
+                  </p>
+                </div>
+              </div>
+
+              {/* Destaques / Benefícios principais */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-2">
+                {tutorialSteps[onboardingStep].highlights.map((item, i) => (
+                  <div key={i} className="p-2.5 rounded-xl border border-white/10 bg-white/[0.03]">
+                    <div className="text-[10px] text-zinc-400 font-medium">{item.label}</div>
+                    <div className="text-xs font-semibold text-cyan-200 mt-0.5">{item.val}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer com botões de navegação */}
+            <div className="px-6 py-4 bg-white/[0.02] border-t border-white/10 flex items-center justify-between">
+              <button
+                onClick={handleFinishOnboarding}
+                className="text-xs text-zinc-500 hover:text-zinc-300 font-semibold cursor-pointer transition-colors"
+              >
+                Pular Introdução
+              </button>
+
+              <div className="flex items-center gap-2">
+                {onboardingStep > 0 && (
+                  <button
+                    onClick={() => setOnboardingStep((s) => s - 1)}
+                    className="px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" /> Anterior
+                  </button>
+                )}
+
+                {onboardingStep < tutorialSteps.length - 1 ? (
+                  <button
+                    onClick={() => setOnboardingStep((s) => s + 1)}
+                    className="px-4 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-md shadow-cyan-600/20 cursor-pointer"
+                  >
+                    Próximo <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleFinishOnboarding}
+                    className="px-5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-black font-bold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-cyan-500/25 cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" /> Começar a Usar o ZeroDrop
+                  </button>
+                )}
+              </div>
+            </div>
+
           </div>
         </div>
       )}
