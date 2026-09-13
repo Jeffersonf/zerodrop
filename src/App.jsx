@@ -101,6 +101,7 @@ export default function App() {
     isAdmin: true,
     profile: 'balanced',
     targetHost: '1.1.1.1',
+    appRules: [],
     config: {
       profile: 'balanced',
       checkInterval: 1000,
@@ -119,9 +120,15 @@ export default function App() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isMaximized, setIsMaximized] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState('failover'); // 'failover' | 'hotspots' | 'routes' | 'system'
+  const [settingsTab, setSettingsTab] = useState('failover'); // 'failover' | 'apps' | 'hotspots' | 'routes' | 'system'
   const [newHotspotInput, setNewHotspotInput] = useState('');
   const [customTargetHost, setCustomTargetHost] = useState('');
+
+  // Per-App Routing State
+  const [isAddingApp, setIsAddingApp] = useState(false);
+  const [runningApps, setRunningApps] = useState([]);
+  const [isLoadingRunningApps, setIsLoadingRunningApps] = useState(false);
+  const [newAppForm, setNewAppForm] = useState({ name: '', path: '', target: 'ETHERNET' });
 
   const [logs, setLogs] = useState([
     { id: 1, time: new Date().toLocaleTimeString('pt-BR'), type: 'success', text: 'ZeroDrop Engine inicializado com seletor de rota em tempo real.' },
@@ -278,6 +285,73 @@ export default function App() {
 
   const handleFlushDNS = () => {
     window.electronAPI?.flushDNS();
+  };
+
+  const handleSelectAppFile = async () => {
+    try {
+      const selected = await window.electronAPI?.selectAppFile();
+      if (selected) {
+        setNewAppForm((prev) => ({
+          ...prev,
+          name: selected.name,
+          path: selected.path
+        }));
+        setIsAddingApp(true);
+      }
+    } catch (e) {
+      console.error('Error selecting file:', e);
+    }
+  };
+
+  const handleLoadRunningApps = async () => {
+    setIsLoadingRunningApps(true);
+    try {
+      const list = await window.electronAPI?.getRunningApps();
+      setRunningApps(Array.isArray(list) ? list : []);
+    } catch (e) {
+      console.error('Error loading running apps:', e);
+    } finally {
+      setIsLoadingRunningApps(false);
+    }
+  };
+
+  const handleSaveAppRule = async () => {
+    if (!newAppForm.path) return;
+    const rule = {
+      id: 'app_' + Date.now(),
+      name: newAppForm.name.trim() || 'Aplicativo',
+      path: newAppForm.path.trim(),
+      target: newAppForm.target || 'ETHERNET',
+      enabled: true
+    };
+    const currentRules = state.appRules || [];
+    const updated = [...currentRules.filter((r) => r.path !== rule.path), rule];
+    setState((prev) => ({ ...prev, appRules: updated }));
+    await window.electronAPI?.saveAppRules(updated);
+    setIsAddingApp(false);
+    setNewAppForm({ name: '', path: '', target: 'ETHERNET' });
+  };
+
+  const handleToggleRule = async (ruleId) => {
+    const updated = (state.appRules || []).map((r) => (r.id === ruleId ? { ...r, enabled: !r.enabled } : r));
+    setState((prev) => ({ ...prev, appRules: updated }));
+    await window.electronAPI?.saveAppRules(updated);
+  };
+
+  const handleChangeRuleTarget = async (ruleId, newTarget) => {
+    const updated = (state.appRules || []).map((r) => (r.id === ruleId ? { ...r, target: newTarget } : r));
+    setState((prev) => ({ ...prev, appRules: updated }));
+    await window.electronAPI?.saveAppRules(updated);
+  };
+
+  const handleRemoveRule = async (ruleId) => {
+    const updated = (state.appRules || []).filter((r) => r.id !== ruleId);
+    setState((prev) => ({ ...prev, appRules: updated }));
+    await window.electronAPI?.saveAppRules(updated);
+  };
+
+  const handleLaunchRule = (rule) => {
+    window.electronAPI?.launchAppBound(rule);
   };
 
   const handleSetRouteStrategy = (strategy) => {
@@ -1097,6 +1171,7 @@ export default function App() {
             <div className="flex items-center gap-1 px-5 pt-2.5 border-b border-white/10 bg-black/20 text-xs overflow-x-auto">
               {[
                 { id: 'failover', label: '⚡ Failover & Tolerância', icon: Sliders },
+                { id: 'apps', label: '🔒 Roteamento por App', icon: Layers },
                 { id: 'hotspots', label: '📱 Hotspots Móveis', icon: Wifi },
                 { id: 'routes', label: '🌐 Rotas & DNS', icon: Globe },
                 { id: 'system', label: '💻 Sistema & Janela', icon: Shield }
@@ -1208,7 +1283,353 @@ export default function App() {
                 </div>
               )}
 
-              {/* TAB 2: HOTSPOTS */}
+              {/* TAB: PER-APP ROUTING */}
+              {settingsTab === 'apps' && (
+                <div className="space-y-4">
+                  {/* Top Explanatory Banner */}
+                  <div className="p-3.5 rounded-xl border border-cyan-500/20 bg-cyan-500/5 flex items-start gap-3">
+                    <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 mt-0.5">
+                      <Layers className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-zinc-100">Isolamento de Conexão por Aplicativo</span>
+                        {state.isAdmin ? (
+                          <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3" /> Firewall Ativo
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" /> Requer Admin
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-zinc-400 text-[11px] mt-1 leading-relaxed">
+                        Trave programas para usar <strong className="text-zinc-200">exclusivamente</strong> a conexão autorizada (ex: Google Chrome no Cabo, iCSee de câmeras no Wi-Fi/5G). As regras são aplicadas com segurança no Firewall nativo do Windows.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Header bar with Add Rule button */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-zinc-300 font-semibold text-xs block">Aplicativos Cadastrados</span>
+                      <span className="text-zinc-500 text-[11px]">
+                        {(state.appRules || []).length} aplicativo{(state.appRules || []).length === 1 ? '' : 's'} configurado{(state.appRules || []).length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          setIsAddingApp(!isAddingApp);
+                          if (!isAddingApp) handleLoadRunningApps();
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-sm shadow-cyan-600/20 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Adicionar Aplicativo
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Add App Form / Panel */}
+                  {isAddingApp && (
+                    <div className="p-4 rounded-xl border border-cyan-500/30 bg-white/[0.03] space-y-3.5 animate-fadeIn">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-zinc-200 text-xs flex items-center gap-1.5">
+                          <Plus className="w-3.5 h-3.5 text-cyan-400" /> Nova Regra de Aplicativo
+                        </span>
+                        <button
+                          onClick={() => setIsAddingApp(false)}
+                          className="text-zinc-400 hover:text-zinc-200 text-xs cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+
+                      {/* Selection options: Running Process or Browse .exe */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={handleSelectAppFile}
+                          className="p-2.5 rounded-xl border border-white/10 hover:border-cyan-500/40 bg-white/5 hover:bg-cyan-500/10 text-left transition-all cursor-pointer flex items-center gap-2"
+                        >
+                          <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-300">
+                            <Laptop className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="font-semibold text-zinc-200 block text-[11px]">Procurar Arquivo (.exe)</span>
+                            <span className="text-[10px] text-zinc-400">Selecionar qualquer programa no computador</span>
+                          </div>
+                        </button>
+
+                        <div className="relative">
+                          <div className="p-2.5 rounded-xl border border-white/10 bg-white/5 text-left flex flex-col justify-center h-full">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-semibold text-zinc-300 text-[11px]">Apps Abertos Agora</span>
+                              <button
+                                onClick={handleLoadRunningApps}
+                                disabled={isLoadingRunningApps}
+                                className="text-cyan-400 hover:text-cyan-300 text-[10px] flex items-center gap-0.5 cursor-pointer"
+                                title="Atualizar lista de processos ativos"
+                              >
+                                <RefreshCw className={`w-2.5 h-2.5 ${isLoadingRunningApps ? 'animate-spin' : ''}`} /> Atualizar
+                              </button>
+                            </div>
+                            <select
+                              onChange={(e) => {
+                                const selected = runningApps.find((p) => p.path === e.target.value);
+                                if (selected) {
+                                  setNewAppForm((prev) => ({
+                                    ...prev,
+                                    name: selected.name,
+                                    path: selected.path
+                                  }));
+                                }
+                              }}
+                              value={newAppForm.path}
+                              className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1 text-zinc-200 text-[11px] focus:outline-none focus:border-cyan-500 cursor-pointer"
+                            >
+                              <option value="">-- Selecionar da lista aberta --</option>
+                              {runningApps.map((p) => (
+                                <option key={p.path} value={p.path}>
+                                  {p.name} ({p.path.split('\\').pop()})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Name & Path Fields */}
+                      <div className="grid grid-cols-3 gap-2 pt-1">
+                        <div>
+                          <label className="block text-zinc-400 text-[10px] mb-1">Nome de Identificação</label>
+                          <input
+                            type="text"
+                            placeholder="Ex: Google Chrome, iCSee Câmeras..."
+                            value={newAppForm.name}
+                            onChange={(e) => setNewAppForm({ ...newAppForm, name: e.target.value })}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-zinc-200 text-xs focus:outline-none focus:border-cyan-500"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="block text-zinc-400 text-[10px] mb-1">Caminho do Executável (.exe)</label>
+                          <input
+                            type="text"
+                            readOnly
+                            placeholder="Selecione um app acima ou clique em Procurar..."
+                            value={newAppForm.path}
+                            className="w-full bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-zinc-400 text-xs focus:outline-none font-mono truncate"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Connection Target Selector */}
+                      <div>
+                        <label className="block text-zinc-300 font-semibold text-[11px] mb-1.5">Conexão Permitida para Este App</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            {
+                              id: 'ETHERNET',
+                              label: '🔵 Apenas Cabo de Rede',
+                              sub: 'Bloqueia totalmente no Wi-Fi/Celular'
+                            },
+                            {
+                              id: 'WIFI',
+                              label: '📱 Apenas Celular / Wi-Fi',
+                              sub: 'Bloqueia totalmente no Cabo'
+                            },
+                            {
+                              id: 'BOTH',
+                              label: '🟢 Dinâmico / Ambas',
+                              sub: 'Segue o failover padrão do sistema'
+                            }
+                          ].map((opt) => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => setNewAppForm({ ...newAppForm, target: opt.id })}
+                              className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                                newAppForm.target === opt.id
+                                  ? 'border-cyan-500/50 bg-cyan-500/15 text-white shadow-sm'
+                                  : 'border-white/10 bg-white/[0.02] text-zinc-400 hover:border-white/20'
+                              }`}
+                            >
+                              <div className="font-bold text-xs">{opt.label}</div>
+                              <div className="text-[10px] text-zinc-400 mt-0.5">{opt.sub}</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Save Button */}
+                      <div className="flex justify-end pt-1">
+                        <button
+                          onClick={handleSaveAppRule}
+                          disabled={!newAppForm.path}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-sm shadow-emerald-600/20 cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5" /> Salvar e Aplicar Regra no Firewall
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* App Rules List */}
+                  {(!state.appRules || state.appRules.length === 0) ? (
+                    <div className="p-8 rounded-2xl border border-dashed border-white/15 bg-white/[0.01] text-center space-y-3">
+                      <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto text-zinc-500">
+                        <Layers className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <span className="font-bold text-zinc-200 block text-xs">Nenhum aplicativo travado ainda</span>
+                        <p className="text-zinc-500 text-[11px] max-w-md mx-auto mt-1">
+                          Adicione o Google Chrome para usar somente o Cabo, o aplicativo das câmeras iCSee para usar o Wi-Fi, ou qualquer outro software.
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-center gap-2 pt-1">
+                        <button
+                          onClick={handleSelectAppFile}
+                          className="px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-cyan-300 border border-cyan-500/20 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Procurar .exe no Computador
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1">
+                      {state.appRules.map((rule) => {
+                        const isEthernet = rule.target === 'ETHERNET';
+                        const isWifi = rule.target === 'WIFI';
+                        const isBoth = rule.target === 'BOTH' || !rule.target;
+
+                        return (
+                          <div
+                            key={rule.id}
+                            className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-3 ${
+                              rule.enabled
+                                ? 'border-white/15 bg-white/[0.02]'
+                                : 'border-white/5 bg-white/[0.01] opacity-60'
+                            }`}
+                          >
+                            {/* App Info */}
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div
+                                className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shrink-0 ${
+                                  isEthernet
+                                    ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
+                                    : isWifi
+                                    ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
+                                    : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                }`}
+                              >
+                                {isEthernet ? <Cable className="w-4 h-4" /> : isWifi ? <Smartphone className="w-4 h-4" /> : <Globe className="w-4 h-4" />}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-zinc-200 text-xs truncate">{rule.name}</span>
+                                  {rule.enabled ? (
+                                    <span
+                                      className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                                        isEthernet
+                                          ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                                          : isWifi
+                                          ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                                          : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                      }`}
+                                    >
+                                      {isEthernet ? '🔵 Apenas Cabo' : isWifi ? '📱 Apenas Celular/Wi-Fi' : '🟢 Ambas'}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full border bg-zinc-700/30 text-zinc-500 border-zinc-700/50">
+                                      Pausado
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] text-zinc-500 font-mono block truncate" title={rule.path}>
+                                  {rule.path}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Quick Route Switcher */}
+                            <div className="flex items-center gap-1 bg-black/30 p-1 rounded-xl border border-white/5 shrink-0">
+                              <button
+                                onClick={() => handleChangeRuleTarget(rule.id, 'ETHERNET')}
+                                title="Travar no Cabo de Rede"
+                                className={`px-2 py-1 rounded-lg text-[10px] font-semibold transition-all cursor-pointer ${
+                                  isEthernet
+                                    ? 'bg-blue-500 text-white shadow-sm'
+                                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+                                }`}
+                              >
+                                Cabo
+                              </button>
+                              <button
+                                onClick={() => handleChangeRuleTarget(rule.id, 'WIFI')}
+                                title="Travar no Wi-Fi / Celular"
+                                className={`px-2 py-1 rounded-lg text-[10px] font-semibold transition-all cursor-pointer ${
+                                  isWifi
+                                    ? 'bg-purple-500 text-white shadow-sm'
+                                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+                                }`}
+                              >
+                                Celular
+                              </button>
+                              <button
+                                onClick={() => handleChangeRuleTarget(rule.id, 'BOTH')}
+                                title="Deixar dinâmico (ambas conexões)"
+                                className={`px-2 py-1 rounded-lg text-[10px] font-semibold transition-all cursor-pointer ${
+                                  isBoth
+                                    ? 'bg-emerald-500 text-white shadow-sm'
+                                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+                                }`}
+                              >
+                                Ambas
+                              </button>
+                            </div>
+
+                            {/* Actions: Launch, Enable Toggle, Delete */}
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                onClick={() => handleLaunchRule(rule)}
+                                title="Executar aplicativo agora com esta conexão"
+                                className="px-2.5 py-1.5 text-[10px] font-semibold bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-xl transition-colors flex items-center gap-1 cursor-pointer"
+                              >
+                                <Play className="w-3 h-3" /> Lançar
+                              </button>
+
+                              <button
+                                onClick={() => handleToggleRule(rule.id)}
+                                title={rule.enabled ? 'Desativar regra' : 'Ativar regra'}
+                                className={`w-9 h-5 flex items-center rounded-full p-0.5 transition-colors cursor-pointer ${
+                                  rule.enabled ? 'bg-emerald-500' : 'bg-zinc-700'
+                                }`}
+                              >
+                                <div
+                                  className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                                    rule.enabled ? 'translate-x-4' : 'translate-x-0'
+                                  }`}
+                                />
+                              </button>
+
+                              <button
+                                onClick={() => handleRemoveRule(rule.id)}
+                                title="Excluir regra e liberar no firewall"
+                                className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 3: HOTSPOTS */}
               {settingsTab === 'hotspots' && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between p-3 rounded-xl border border-white/10 bg-white/[0.02]">

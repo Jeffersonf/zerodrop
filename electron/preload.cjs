@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   connectHotspot: (name) => ipcRenderer.send('connect-hotspot', name),
   checkForUpdates: () => ipcRenderer.send('check-for-updates'),
   restartAndInstallUpdate: () => ipcRenderer.send('restart-and-install-update'),
+  getRunningApps: () => ipcRenderer.invoke('get-running-apps'),
+  selectAppFile: () => ipcRenderer.invoke('select-app-file'),
+  saveAppRules: (rules) => ipcRenderer.invoke('save-app-rules', rules),
+  launchAppBound: (rule) => ipcRenderer.invoke('launch-app-bound', rule),
   onStatusUpdate: (callback) => ipcRenderer.on('status-update', (event, data) => callback(data)),
   onUpdateStatus: (callback) => ipcRenderer.on('update-status', (event, data) => callback(data)),
   onLog: (callback) => ipcRenderer.on('log-event', (event, data) => callback(data))

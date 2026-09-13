@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, dialog } = require('electron');
 const path = require('path');
 const os = require('os');
 const net = require('net');
+const http = require('http');
 const fs = require('fs');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 
 app.setName('ZeroDrop');
@@ -40,6 +41,9 @@ let isConnectingHotspot = false;
 let activeHotspotName = '';
 const hotspotFailureCooldown = new Map();
 
+// Roteamento por Aplicativo (Per-App Rules)
+let appRules = [];
+
 // Configurações & Presets
 let config = {
   profile: 'balanced',
@@ -69,6 +73,7 @@ function loadSavedConfig() {
         }
       }
       if (typeof data.autoConnectHotspot === 'boolean') autoConnectHotspot = data.autoConnectHotspot;
+      if (Array.isArray(data.appRules)) appRules = data.appRules;
     }
   } catch (e) {
     console.error('Error reading config file:', e);
@@ -78,7 +83,7 @@ loadSavedConfig();
 
 function saveCurrentConfig() {
   try {
-    fs.writeFileSync(configFile, JSON.stringify({ config, targetHotspots, autoConnectHotspot }, null, 2), 'utf-8');
+    fs.writeFileSync(configFile, JSON.stringify({ config, targetHotspots, autoConnectHotspot, appRules }, null, 2), 'utf-8');
   } catch (e) {
     console.error('Error saving config file:', e);
   }
@@ -212,6 +217,122 @@ function resetInterfaceMetric(alias) {
 
 function flushDNS() {
   exec('powershell -NoProfile -Command "Clear-DnsClientCache"');
+}
+
+// --- ROTEAMENTO POR APLICATIVO & FIREWALL RULES ---
+
+function getRuleInternalName(id) {
+  const cleanId = String(id || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  return `ZeroDrop_App_${cleanId}`;
+}
+
+function removeSingleAppRule(ruleId) {
+  return new Promise((resolve) => {
+    const ruleName = getRuleInternalName(ruleId);
+    const cmd = `powershell -NoProfile -Command "Remove-NetFirewallRule -Name '${ruleName}' -ErrorAction SilentlyContinue"`;
+    exec(cmd, () => resolve());
+  });
+}
+
+function applySingleAppRule(rule) {
+  return new Promise((resolve) => {
+    if (!rule || !rule.id || !rule.path) return resolve();
+    const ruleName = getRuleInternalName(rule.id);
+    const cleanPath = rule.path.replace(/"/g, '`"');
+    const appLabel = rule.name || path.basename(rule.path);
+
+    // Remove qualquer regra prévia com esse identificador
+    const removeCmd = `powershell -NoProfile -Command "Remove-NetFirewallRule -Name '${ruleName}' -ErrorAction SilentlyContinue"`;
+    exec(removeCmd, () => {
+      if (!rule.enabled || rule.target === 'BOTH') {
+        return resolve();
+      }
+
+      let blockedInterface = '';
+      let targetDesc = '';
+      if (rule.target === 'ETHERNET') {
+        // Travado no Cabo -> Bloqueia na placa Wi-Fi/Celular
+        blockedInterface = secondaryAlias || 'Wi-Fi';
+        targetDesc = 'Apenas Cabo';
+      } else if (rule.target === 'WIFI') {
+        // Travado no Wi-Fi/Celular -> Bloqueia na placa de Cabo
+        blockedInterface = primaryAlias || 'Ethernet';
+        targetDesc = 'Apenas Wi-Fi/Celular';
+      }
+
+      if (!blockedInterface) return resolve();
+
+      const addCmd = `powershell -NoProfile -Command "New-NetFirewallRule -Name '${ruleName}' -DisplayName 'ZeroDrop [${appLabel}] -> ${targetDesc}' -Group 'ZeroDrop App Rules' -Direction Outbound -Action Block -Program '${cleanPath}' -InterfaceAlias '${blockedInterface}' -ErrorAction SilentlyContinue"`;
+      exec(addCmd, (err) => {
+        if (err) {
+          console.warn(`[Firewall] Erro na regra ${appLabel}:`, err.message);
+        }
+        resolve();
+      });
+    });
+  });
+}
+
+async function syncAllAppRules() {
+  if (!Array.isArray(appRules) || appRules.length === 0) return;
+  for (const rule of appRules) {
+    await applySingleAppRule(rule);
+  }
+}
+
+// --- MICRO-PROXIES DE INTERFACE (Portas 28081 & 28082) ---
+let proxyServerPrimary = null;
+let proxyServerSecondary = null;
+
+function startInterfaceProxies() {
+  function createBoundProxy(port, getIP, label) {
+    const srv = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(`ZeroDrop Micro-Proxy (${label}) Ativo\n`);
+    });
+
+    srv.on('connect', (req, clientSocket, head) => {
+      const [host, portStr] = req.url.split(':');
+      const targetPort = parseInt(portStr, 10) || 443;
+      const targetHost = host;
+      const localIP = getIP();
+
+      const connectOpts = { host: targetHost, port: targetPort };
+      if (localIP && !localIP.startsWith('169.254.') && !localIP.startsWith('127.')) {
+        connectOpts.localAddress = localIP;
+      }
+
+      const serverSocket = net.connect(connectOpts, () => {
+        clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (head && head.length) serverSocket.write(head);
+        serverSocket.pipe(clientSocket);
+        clientSocket.pipe(serverSocket);
+      });
+
+      serverSocket.on('error', () => {
+        try { clientSocket.end(); } catch (_) {}
+      });
+      clientSocket.on('error', () => {
+        try { serverSocket.end(); } catch (_) {}
+      });
+    });
+
+    srv.on('error', (err) => {
+      console.warn(`[Proxy ${label}] porta ${port}:`, err.message);
+    });
+
+    try {
+      srv.listen(port, '127.0.0.1', () => {
+        console.log(`[Proxy] Micro-proxy ZeroDrop (${label}) escutando em 127.0.0.1:${port}`);
+      });
+    } catch (e) {
+      console.warn(`[Proxy] Falha ao iniciar proxy ${label}:`, e);
+    }
+    return srv;
+  }
+
+  proxyServerPrimary = createBoundProxy(28081, () => primaryIP, 'Cabo');
+  proxyServerSecondary = createBoundProxy(28082, () => secondaryIP, 'Wi-Fi');
 }
 
 function probeTarget(localIP, host, port, timeout = 1000) {
@@ -624,7 +745,8 @@ async function monitorTick() {
     isAdmin,
     profile: config.profile,
     targetHost: config.targetHost,
-    appVersion: app.getVersion()
+    appVersion: app.getVersion(),
+    appRules: [...appRules]
   });
 }
 
@@ -863,9 +985,93 @@ ipcMain.on('restart-and-install-update', () => {
   }
 });
 
+ipcMain.handle('get-running-apps', async () => {
+  return new Promise((resolve) => {
+    const psCmd = `Get-Process | Where-Object { $_.Path -and $_.Path -notmatch 'Windows\\\\System32|Windows\\\\SysWOW64' } | Select-Object -Unique ProcessName, Path | Sort-Object ProcessName | ConvertTo-Json -Compress`;
+    exec(`powershell -NoProfile -Command "${psCmd}"`, { maxBuffer: 1024 * 1024 * 2 }, (err, stdout) => {
+      if (err || !stdout || !stdout.trim()) {
+        return resolve([]);
+      }
+      try {
+        const parsed = JSON.parse(stdout.trim());
+        const list = Array.isArray(parsed) ? parsed : [parsed];
+        const formatted = list
+          .filter((p) => p && p.Path && p.ProcessName)
+          .map((p) => ({
+            name: p.ProcessName,
+            path: p.Path
+          }));
+        resolve(formatted);
+      } catch (e) {
+        resolve([]);
+      }
+    });
+  });
+});
+
+ipcMain.handle('select-app-file', async () => {
+  if (!mainWindow) return null;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Selecionar Executável para Roteamento',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Aplicativos (.exe)', extensions: ['exe'] },
+      { name: 'Todos os Arquivos', extensions: ['*'] }
+    ]
+  });
+
+  if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+    return null;
+  }
+
+  const selectedPath = result.filePaths[0];
+  const filename = path.basename(selectedPath, path.extname(selectedPath));
+  return {
+    name: filename,
+    path: selectedPath
+  };
+});
+
+ipcMain.handle('save-app-rules', async (event, newRules) => {
+  if (Array.isArray(newRules)) {
+    appRules = newRules;
+    saveCurrentConfig();
+    await syncAllAppRules();
+    sendLog('info', `🔒 Regras de aplicativos atualizadas (${appRules.length} cadastradas).`);
+    return { ok: true, rules: appRules };
+  }
+  return { ok: false, error: 'Lista inválida' };
+});
+
+ipcMain.handle('launch-app-bound', async (event, rule) => {
+  if (!rule || !rule.path) return { ok: false, error: 'Caminho inválido' };
+  try {
+    const isBrowser = /chrome|msedge|brave|opera/i.test(rule.path);
+    const args = [];
+
+    if (isBrowser && rule.target === 'WIFI') {
+      args.push('--proxy-server=http://127.0.0.1:28082');
+    } else if (isBrowser && rule.target === 'ETHERNET') {
+      args.push('--proxy-server=http://127.0.0.1:28081');
+    }
+
+    const child = spawn(rule.path, args, { detached: true, stdio: 'ignore' });
+    child.unref();
+
+    const desc = rule.target === 'WIFI' ? 'Apenas Celular/Wi-Fi' : rule.target === 'ETHERNET' ? 'Apenas Cabo' : 'Dinâmico';
+    sendLog('switch', `🚀 Executando ${rule.name || 'aplicativo'} travado em [${desc}]...`);
+    return { ok: true };
+  } catch (e) {
+    sendLog('fail', `Erro ao iniciar aplicativo: ${e.message}`);
+    return { ok: false, error: e.message };
+  }
+});
+
 app.whenReady().then(() => {
   createWindow();
   createTray();
+  startInterfaceProxies();
+  syncAllAppRules();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
